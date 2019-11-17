@@ -11,22 +11,23 @@ import json
 from collections import defaultdict
 
 DEUBUG = False
-out_path = "/nobackup/scratch/Wed/francl/bkgd_textures_out_sparse_sampled_same_texture_expanded_set_44.1kHz/"
-env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild/HRIRdist140-5deg_elev_az_*"))
+out_path = "/nobackup/scratch/Sat/francl/bkgd_textures_out_sparse_sampled_same_texture_expanded_set_44.1kHz_anechoic/"
+env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild/Anechoic_HRIRdist140-5deg_elev_az_room5x5y5z_materials26wall26floor26ciel"))
+anechoic_HRTF = True if any(["Anechoic" in path for path in env_paths]) else False
 version = int(sys.argv[1])
 hrir_path = env_paths[version]
 hrir_name = basename(hrir_path)
-walls = hrir_name.split("_")[3]
-materials = hrir_name.split("_")[4]
+walls = hrir_name.split("_")[4] if anechoic_HRTF else hrir_name.split("_")[3]
+materials = hrir_name.split("_")[5] if anechoic_HRTF else hrir_name.split("_")[4]
 #out_path = "./pure_tones_out/"
 rate_out=44100  #Desired sample rate of "spatialized" WAV
 rate_in=44100   #Sample Rate for Stimuli
 
-background_files = glob("/nobackup/scratch/Wed/francl/STSstep_v0p2/_synths/*/*.wav")   #File path to background sounds
+background_files = glob("/nobackup/scratch/Sat/francl/STSstep_v0p2/_synths/*/*.wav")   #File path to background sounds
 #hrirs_files = sorted(glob("./JayDesloge/HRIR_elev_az_44100Hz_vary_loc/*{}x{}y{}z*.wav".format(x,y,z)))
 MAXVAL = 32767.0
 scaling = 0.1
-NUM_BKGDS = 10000
+NUM_BKGDS = 50000
 NUM_POSITIONS =504
 
 array_write = False
