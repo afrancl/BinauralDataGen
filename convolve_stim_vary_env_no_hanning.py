@@ -9,15 +9,19 @@ import sys
 import pdb
 
 DEUBUG = False
-out_path="/nobackup/scratch/Wed/francl/stim_out_convolved_oldHRIRdist140_no_hanning/testset/"
+out_path="/nobackup/scratch/Wed/francl/stim_out_convolved_2MicArray15cmSpacingDist140_no_hanning/"
 #out_path = "./pure_tones_out/"
 rate_out=44100  #Desired sample rate of "spatialized" WAV
 rate_in=44100   #Sample Rate for Stimuli
 
-#stim_files = glob("/om/user/gahlm/sorted_sounds_dataset/sorted_stimuli_specfilt/*.wav")    #File path to stimuli
-stim_files = glob("/om/user/gahlm/sorted_sounds_dataset/sorted_stimuli_specfilt/testset/*.wav")    #File path to stimuli
-env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild/HRIRdist140-5deg_elev_az_room*"))
+#stim_files = glob("/om/user/francl/SoundLocalization/noise_samples_1octvs_jittered/*.wav")
+stim_files = glob("/om/user/gahlm/sorted_sounds_dataset/sorted_stimuli_specfilt/*.wav")    #File path to stimuli
+#stim_files = glob("/om/user/gahlm/sorted_sounds_dataset/sorted_stimuli_down_sample/*.wav")    #File path to stimuli
+#env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild/HRIRdist140-5deg_elev_az_room*"))
+env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild_2_mic_version/2MicIRdist140-5deg_elev_az_room*"))
+#env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild/Anechoic_HRIRdist140-5deg_elev_az_room5x5y5z_materials26wall26floor26ciel"))
 ramp_dur_ms = 10
+filter_str = ''
 
 #zero padding options
 zero_pad = True
@@ -30,10 +34,15 @@ vary_itd_flag = False
 #scales loudness of sounds DO NOT CHANGE
 scaling = 0.1
 
-#scales probability of renering any given position for a sound
-prob_gen =0.025
-#prob_gen =0.05
-#prob_gen =1.00
+#scales probability of rendering any given position for a sound
+#Use for 1oct white noise
+#prob_gen =0.017
+#Natural Stim case
+prob_gen =0.05
+#Use for anechoic pure tones
+#prob_gen = 0.25
+#I think this was used in a previous anechoic case
+#prob_gen =32.00
 version = int(sys.argv[1])
 
 #slice array to parrallelize in slurm
@@ -49,6 +58,8 @@ def vary_itd(left_stim,right_stim,diff):
 for s in stim_files_slice:
     stim_name = basename(s).split(".wav")[0]
     stim_rate, stim=read(s)
+    if len(stim.shape) > 1:
+        continue
 
     #Zeros pad stimulus to avoid sound onset always being at the start of wave
     #files
@@ -60,7 +71,8 @@ for s in stim_files_slice:
     #stim_resampled = signal.resample(stim,nroutsamples)
     #gets filesnames for left and right channel HRIR
     for env in env_paths:
-        hrirs_files = sorted(glob('{}/*.wav'.format(env)))
+        hrirs_files = sorted(glob('{}/'.format(env)+filter_str+'*.wav'))
+        #This should be 72 for 5 degree bins
         num_postitions = len(hrirs_files)/(36*7*2)
         class_balancing_factor = 1 if num_postitions < 1 else 4.0/num_postitions
         env_name_list = basename(env).split("_")
