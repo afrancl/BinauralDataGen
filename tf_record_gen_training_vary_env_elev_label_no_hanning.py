@@ -15,9 +15,10 @@ from nnresample import resample
 
 
 version = int(sys.argv[1])
-train_filename = '/om/scratch/Sun/francl/stimRecords_binaural_recorded_testset_office_0elev/train{}.tfrecords'.format(version) 
+train_filename = '/om/scratch/Wed/francl/toneRecords_fullrange_jitteredPhase_man-added-ITD_stackedCH_upsampled_remade_test/train{}.tfrecords'.format(version) 
 #file_path = './stimuli_out_full_set/testset/*.wav'
-file_path = '/om/user/francl/recorded_binaural_audio_office_0elev_rescaled/*.wav' 
+#file_path = '/om/user/francl/recorded_binaural_audio_4078_main_kemar_rescaled/*.wav' 
+file_path ='/om/scratch/Wed/francl/tones_fullspec_jittered_phase_ITD/*.wav' 
 #file_path = '/om/scratch/Wed/francl/bkgd_textures_out_sparse_sampled_same_texture_expanded_set_44.1kHz/*.wav' 
 #version = 2000
 # address to save the TFRecords file
@@ -51,9 +52,9 @@ precedence_effect = False
 #True if running spatialized noise with varying freqs/bandwidths
 narrowband_noise = False
 #changes string parsing to get manually added labels
-man_added = False
+man_added = True
 #True if processing recorded binaural sounds
-binaural_recorded = True
+binaural_recorded = False
 #BRIR version has different labels and postions in string
 BRIR_ver = False
 #slicing directly from cochleagram to avoid pop onsets
@@ -245,7 +246,14 @@ def parse_labels_filename(stim_path, metadata_dict):
     elif binaural_recorded:
         azim = np.array(int(stim.split('_')[-2]),dtype=np.int32)
         elev = 0
-        labels = [azim, elev]
+        speech_flag = 0 if "Class" in stim.split('_')[0] else 1
+        speech = np.array(speech_flag,dtype=np.int32) 
+        labels = [azim, elev, speech_flag]
+    elif freq_label:
+        azim = np.array(int(stim.split('_')[-4].split('a')[0]),dtype=np.int32)
+        elev = np.array(int(stim.split('_')[-5].split('e')[0]),dtype=np.int32)
+        freq = np.array(int(stim.split('_')[1]),dtype=np.int32)
+        labels = [azim,elev,freq]
     else:
         azim = np.array(int(stim.split('_')[-4].split('a')[0]),dtype=np.int32)
         elev = np.array(int(stim.split('_')[-5].split('e')[0]),dtype=np.int32)
@@ -266,6 +274,14 @@ def create_feature(subbands,labels=None):
                    'train/image_height': _int64_feature(subbands.shape[0]),
                    'train/image_width': _int64_feature(subbands.shape[1]),
                   }
+    elif man_added:
+        feature = {'train/azim': _int64_feature(labels[0]),
+                   'train/elev': _int64_feature(labels[1]),
+                   'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
+                   'train/image_height': _int64_feature(subbands.shape[0]),
+                   'train/image_width': _int64_feature(subbands.shape[1]),
+                   'train/freq': _int64_feature(labels[2])
+                  }
     elif freq_label:
         feature = {'train/azim': _int64_feature(labels[0]),
                    'train/elev': _int64_feature(labels[1]),
@@ -281,14 +297,6 @@ def create_feature(subbands,labels=None):
                    'train/image_height': _int64_feature(subbands.shape[0]),
                    'train/image_width': _int64_feature(subbands.shape[1]),
                    'train/freq': _int64_feature(labels[2])
-                  }
-    elif freq_label:
-        feature = {'train/azim': _int64_feature(labels[0]),
-                   'train/elev': _int64_feature(labels[1]),
-                   'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
-                   'train/image_height': _int64_feature(subbands.shape[0]),
-                   'train/image_width': _int64_feature(subbands.shape[1]),
-                   'train/freq': _int64_feature(int(basename(source_files[i]).split("_")[1]))
                   }
     elif sam_tones:
         feature = {'train/carrier_freq': _int64_feature(labels[0]),
@@ -332,6 +340,7 @@ def create_feature(subbands,labels=None):
     else:
         feature = {'train/azim': _int64_feature(labels[0]),
                    'train/elev': _int64_feature(labels[1]),
+                   #'train/speech': _int64_feature(labels[2]),
                    #'train/class_num': _int64_feature(labels[2]),
                    'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
                    'train/image_height': _int64_feature(subbands.shape[0]),
