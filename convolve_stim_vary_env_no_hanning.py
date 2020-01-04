@@ -7,18 +7,23 @@ from scipy import signal
 from os.path import basename
 import sys
 import pdb
+import json
 
 DEUBUG = False
-out_path="/nobackup/scratch/Wed/francl/stim_out_convolved_2MicArray15cmSpacingDist140_no_hanning/"
+out_path="/scratch/Wed/francl/nsynth-test-spatialized"
 #out_path = "./pure_tones_out/"
 rate_out=44100  #Desired sample rate of "spatialized" WAV
 rate_in=44100   #Sample Rate for Stimuli
 
+#appends metadata to preexisting json dicts
+metadata_dict_mode = True
 #stim_files = glob("/om/user/francl/SoundLocalization/noise_samples_1octvs_jittered/*.wav")
-stim_files = glob("/om/user/gahlm/sorted_sounds_dataset/sorted_stimuli_specfilt/*.wav")    #File path to stimuli
-#stim_files = glob("/om/user/gahlm/sorted_sounds_dataset/sorted_stimuli_down_sample/*.wav")    #File path to stimuli
-#env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild/HRIRdist140-5deg_elev_az_room*"))
-env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild_2_mic_version/2MicIRdist140-5deg_elev_az_room*"))
+stim_paths = "/scratch/Wed/francl/nsynth-test"
+stim_files = glob(stim_paths+"/audio/*.wav") if metadata_dict_mode else glob(stim_paths+"/*.wav")
+#stim_files = glob("/nobackup/scratch/Sat/francl/bandpassed_noise_0.3octv_fullspec_jittered_phase_logspace_new_2019_11_19/*.wav")
+#stim_files = glob("/om/user/gahlm/sorted_sounds_dataset/sorted_stimuli_specfilt/testset/*.wav")    #File path to stimuli
+env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild/HRIRdist140-5deg_elev_az_room*"))
+#env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild_2_mic_version/2MicIRdist140-5deg_elev_az_room*"))
 #env_paths = sorted(glob("/om/user/francl/Room_Simulator_20181115_Rebuild/Anechoic_HRIRdist140-5deg_elev_az_room5x5y5z_materials26wall26floor26ciel"))
 ramp_dur_ms = 10
 filter_str = ''
@@ -35,15 +40,27 @@ vary_itd_flag = False
 scaling = 0.1
 
 #scales probability of rendering any given position for a sound
+#Nsynth
+prob_gen = 0.01
 #Use for 1oct white noise
 #prob_gen =0.017
+#boradband whitenoise
+#prob_gen = 0.2
 #Natural Stim case
-prob_gen =0.05
+#prob_gen =0.05
 #Use for anechoic pure tones
 #prob_gen = 0.25
+#Use for natural stim anechoic testset
+#prob_gen = 0.125
 #I think this was used in a previous anechoic case
 #prob_gen =32.00
 version = int(sys.argv[1])
+
+if metadata_dict_mode:
+    json_filename = glob(stim_paths+"/*.json")
+    assert len(json_filename) == 1, "Only one JSON file supported"
+    with open(json_filename[0],'r') as f:
+        json_dict = json.load(f)
 
 #slice array to parrallelize in slurm
 low_idx = 110*version
@@ -58,7 +75,12 @@ def vary_itd(left_stim,right_stim,diff):
 for s in stim_files_slice:
     stim_name = basename(s).split(".wav")[0]
     stim_rate, stim=read(s)
+
+    msg = ("The sampling rate {}kHz does not match"
+           "the declared value {}kHz".format(stim_rate,rate_in))
+    assert stim_rate == rate_in, msg
     if len(stim.shape) > 1:
+        print("{} is stereo audio".format(stim_name))
         continue
 
     #Zeros pad stimulus to avoid sound onset always being at the start of wave
@@ -108,9 +130,21 @@ for s in stim_files_slice:
             rescaled_conv_stim_l =conv_stim_l/max_val*scaling
             #converts to proper format for scipy wavwriter
             out_stim = np.array([rescaled_conv_stim_l, rescaled_conv_stim_r], dtype=np.float32).T
-            name = "{}_{}elev_{}ax_{}_{}_{}.wav".format(stim_name,elev,azim,head_location,room_geometry,room_materials)
+            if metadata_dict_mode:
+                spatial_dict = {'elev':elev,'azim':azim,
+                                'head_location':head_location,
+                                'room_geometry': room_geometry,
+                                'room_materials':room_materials}
+                json_dict[stim_name].update(spatial_dict)
+                name = "/audio/{}_{}elev_{}ax_{}_{}_{}.wav".format(stim_name,elev,azim,head_location,room_geometry,room_materials)
+            else:
+                name = "{}_{}elev_{}ax_{}_{}_{}.wav".format(stim_name,elev,azim,head_location,room_geometry,room_materials)
             if not i%1000:
                 print(name)
             name_with_path = out_path+name
             write(name_with_path,rate_out,out_stim)
 
+if metadata_dict_mode:
+    json_filename = out_path+"/examples.json"
+    with open(json_filename,'w') as f:
+        json.dump(json_dict,f)
