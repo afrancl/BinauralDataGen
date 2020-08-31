@@ -1,3 +1,4 @@
+import math
 import json
 import pdb
 from hanning_window import hanning_window
@@ -15,11 +16,12 @@ from nnresample import resample
 
 
 version = int(sys.argv[1])
-train_filename = '/om/scratch/Wed/francl/toneRecords_fullrange_jitteredPhase_man-added-ITD_stackedCH_upsampled_remade_test/train{}.tfrecords'.format(version) 
+train_filename = '/nobackup/scratch/Wed/francl/noiseRecords_logspaced_fluctuating_0.5octv_anechoic_convolvedHRIR140_stackedCH_upsampled/testset/train{}.tfrecords'.format(version) 
 #file_path = './stimuli_out_full_set/testset/*.wav'
-#file_path = '/om/user/francl/recorded_binaural_audio_4078_main_kemar_rescaled/*.wav' 
-file_path ='/om/scratch/Wed/francl/tones_fullspec_jittered_phase_ITD/*.wav' 
-#file_path = '/om/scratch/Wed/francl/bkgd_textures_out_sparse_sampled_same_texture_expanded_set_44.1kHz/*.wav' 
+#file_path = '/om/user/francl/recorded_binaural_audio_4078_main_2_mic_array_rescaled/*.wav' 
+#file_path = '/om/scratch/Wed/francl/broadband_whitenoise/*.wav' 
+file_path ='/nobackup/scratch/Wed/francl/logspaced_bandpassed_fluctuating_noise_0.5octv_out_convolved_anechoic_oldHRIRdist140_no_hanning/testset/*.wav' 
+#file_path = '/om/scratch/Wed/francl/precedence_effect_pinknoise_jittered_start_jitteredPt5ms_lag_multiAzimLead_0deg_5degStep_rescaled/*.wav' 
 #version = 2000
 # address to save the TFRecords file
 signal_rate =48000
@@ -29,12 +31,8 @@ remove_ILD = False
 ##REVERTS TO OLD RECORD FORMAT###
 revert_record_format = False
 
-#apply seond hanning window before cochleagram calculation
-hanning_windowed = False
-#zero hanning windowed sound to avoid onset clickes
-zero_padded = False
-#stacks L/R channels in last dimension isntead of interleaving data
-channel_stack = True
+
+##STIMULI CONDITIONS##
 #flag for background stimuli to remove label flags
 background = False
 #flag to parse metadata dictionaries for sparse bkgd textures
@@ -49,14 +47,36 @@ sam_tones = False
 transposed_tones = False
 #True if running with precedence effect clicks
 precedence_effect = False
+#True if running with precedence effect clicks with multiple lead postions
+precedence_effect_multi_azim = False
+#True if running with gaussian noise for wood azimuth experiment
+wood_noise=False
 #True if running spatialized noise with varying freqs/bandwidths
 narrowband_noise = False
 #changes string parsing to get manually added labels
-man_added = True
+man_added = False
+#changes string parsing to get manually added labels for both ITD and ILD
+joint_man_added = False
+#CIPIC dataset flag, parses subject number as well as az/elev
+CIPIC = False
+#Use for smooth HRTFs with broadband noise to extract smoothing factor
+smoothed_hrtf = False
+#Use for ITD/ILD bias added to bandpass nois
+middlebrooks_wrightman = False
 #True if processing recorded binaural sounds
 binaural_recorded = False
 #BRIR version has different labels and postions in string
 BRIR_ver = False
+#Make cochleagram without any labels
+no_labels = False
+
+##PREPROCESSING FLAGS##
+#apply seond hanning window before cochleagram calculation
+hanning_windowed = False
+#zero hanning windowed sound to avoid onset clickes
+zero_padded = False
+#stacks L/R channels in last dimension isntead of interleaving data
+channel_stack = True
 #slicing directly from cochleagram to avoid pop onsets
 sliced=True
 no_back_limit=False
@@ -66,7 +86,7 @@ final_stim_length = round(1.0*signal_rate)
 #Change minimum padding if using tranposed or sam_tones to ensure stimuli is in
 #sampled portion
 minimum_padding = 21000 if transposed_tones or sam_tones else minimum_padding
-minimum_padding = 16000 if precedence_effect else minimum_padding
+minimum_padding = 16000 if precedence_effect or wood_noise else minimum_padding
 
 hi_lim =20000
 if revert_record_format:
@@ -84,6 +104,9 @@ coch_gen_sig_cutoff = 2*signal_rate
 #Split filenames into train and test set
 source_files = glob(file_path)
 
+#get center frequencites of subbands
+center_freqs = np.load("/om/user/francl/cochleagram39CH_center_freqs.npy")
+
 #Type conversion functions
 def _int64_feature(value):
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
@@ -96,6 +119,16 @@ def _int64_feature_numpy(value):
 
 def _bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+def calculate_ILD(subbands_l,subbands_r,freq_range,center_freqs):
+    valid_indicies = [i for i,x in enumerate(center_freqs) if
+                      freq_range[0]<x<freq_range[1]]
+    subbands_l_sum = sum([np.sqrt(np.square(x.mean())) for i,x in enumerate(subbands_l) if i in
+                          valid_indicies])
+    subbands_r_sum = sum([np.sqrt(np.square(x.mean())) for i,x in enumerate(subbands_r) if i in
+                          valid_indicies])
+    ratio = 20*math.log10(subbands_l_sum/subbands_r_sum)
+    return ratio
 
 def cochleagram_wrapper(stim):
     stim_wav, stim_freq = utl.wav_to_array(stim, rescale=None)
@@ -193,6 +226,11 @@ def parse_labels_filename(stim_path, metadata_dict):
         elev=0
         carrier_freq = np.array(int(stim.split('_')[1]),dtype=np.int32)
         labels = [azim,elev,carrier_freq]
+    elif joint_man_added:
+        ITD = np.array(int(stim.split('_')[-2].split('I')[0]),dtype=np.int32)
+        ILD = np.array(int(stim.split('_')[-1].split('I')[0]),dtype=np.int32)
+        carrier_freq = np.array(int(stim.split('_')[1]),dtype=np.int32)
+        labels = [ITD,ILD,carrier_freq]
     elif BRIR_ver:
         azim = np.array(int(stim_basename.split('_')[-3].split('a')[0]),dtype=np.int32)
         elev = 0
@@ -219,6 +257,18 @@ def parse_labels_filename(stim_path, metadata_dict):
         flipped = np.array(1 if len(stim.split('_')) == 7 else 0
                            ,dtype=np.int32)
         labels = [carrier_freq, modulation_freq, carrier_delay, modulation_delay,flipped]
+    elif precedence_effect_multi_azim:
+        delay = np.array(float(stim.split('_')[2]),dtype=np.float32)
+        start_sample = np.array(int(stim.split('_')[5].split('t')[2]),
+                                dtype=np.int32)
+        lead_level = np.array(float(stim.split('_')[6].split('l')[0]),
+                                    dtype=np.float32)
+        lag_level = np.array(float(stim.split('_')[7].split('l')[0]),
+                                    dtype=np.float32)
+        azim = np.array(int(stim.split('_')[4].split('a')[0]),dtype=np.int32)
+        flipped = np.array(1 if len(stim.split('_')) == 9 else 0
+                           ,dtype=np.int32)
+        labels = [delay, azim, start_sample, lead_level, lag_level, flipped]
     elif precedence_effect:
         delay = np.array(float(stim.split('_')[2]),dtype=np.float32)
         start_sample = np.array(int(stim.split('_')[4].split('t')[2]),
@@ -238,6 +288,28 @@ def parse_labels_filename(stim_path, metadata_dict):
         azim = np.array(int(stim.split('_')[-4].split('a')[0]),dtype=np.int32)
         elev = np.array(int(stim.split('_')[-5].split('e')[0]),dtype=np.int32)
         labels = [azim,elev,bandwidth,carrier_freq]
+    elif CIPIC:
+        azim = np.array(int(stim.split('_')[-2].split('a')[0]),dtype=np.int32)
+        elev = np.array(int(stim.split('_')[-3].split('e')[0]),dtype=np.int32)
+        noise_idx = np.array(int(stim.split('_')[-4].split('i')[0]),dtype=np.int32)
+        subject_num = np.array(int(stim.split('_')[-1].split('t')[1].split('.')[0]),dtype=np.int32)
+        labels = [azim,elev,noise_idx,subject_num]
+    elif middlebrooks_wrightman:
+        azim = np.array(int(stim.split('_')[-4].split('a')[0]),dtype=np.int32)
+        elev = np.array(int(stim.split('_')[-5].split('e')[0]),dtype=np.int32)
+        ITD = np.array(int(stim.split('_')[-3].split('I')[0]),dtype=np.int32)
+        ILD = np.array(int(stim.split('_')[-2].split('I')[0]),dtype=np.int32)
+        noise_idx = np.array(int(stim.split('_')[-6].split('i')[0]),dtype=np.int32)
+        subject_num = np.array(int(stim.split('_')[-1].split('t')[1].split('.')[0]),dtype=np.int32)
+        low_cutoff = np.array(int(stim.split('_')[-8].split('l')[0]),dtype=np.int32)
+        high_cutoff = np.array(int(stim.split('_')[-7].split('h')[0]),dtype=np.int32)
+        labels = [azim,elev,ITD,ILD,noise_idx,low_cutoff,high_cutoff,subject_num]
+    elif smoothed_hrtf:
+        azim = np.array(int(stim.split('_')[-2].split('a')[0]),dtype=np.int32)
+        elev = np.array(int(stim.split('_')[-3].split('e')[0]),dtype=np.int32)
+        noise_idx = np.array(int(stim.split('_')[-4].split('i')[0]),dtype=np.int32)
+        smooth_factor = np.array(int(stim.split('_')[-1].split('s')[0]),dtype=np.int32)
+        labels = [azim,elev,noise_idx,smooth_factor]
     elif noise_bursts:
         azim = np.array(int(stim.split('_')[-4].split('a')[0]),dtype=np.int32)
         elev = np.array(int(stim.split('_')[-5].split('e')[0]),dtype=np.int32)
@@ -254,6 +326,8 @@ def parse_labels_filename(stim_path, metadata_dict):
         elev = np.array(int(stim.split('_')[-5].split('e')[0]),dtype=np.int32)
         freq = np.array(int(stim.split('_')[1]),dtype=np.int32)
         labels = [azim,elev,freq]
+    elif no_labels:
+        labels = [0,0]
     else:
         azim = np.array(int(stim.split('_')[-4].split('a')[0]),dtype=np.int32)
         elev = np.array(int(stim.split('_')[-5].split('e')[0]),dtype=np.int32)
@@ -273,6 +347,16 @@ def create_feature(subbands,labels=None):
                    'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
                    'train/image_height': _int64_feature(subbands.shape[0]),
                    'train/image_width': _int64_feature(subbands.shape[1]),
+                  }
+    elif joint_man_added:
+        feature = {'train/ITD': _int64_feature(labels[0]),
+                   'train/ILD': _int64_feature(labels[1]),
+                   'train/azim': _int64_feature(0),
+                   'train/elev': _int64_feature(0),
+                   'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
+                   'train/image_height': _int64_feature(subbands.shape[0]),
+                   'train/image_width': _int64_feature(subbands.shape[1]),
+                   'train/freq': _int64_feature(labels[2])
                   }
     elif man_added:
         feature = {'train/azim': _int64_feature(labels[0]),
@@ -318,6 +402,17 @@ def create_feature(subbands,labels=None):
                    'train/image_height': _int64_feature(subbands.shape[0]),
                    'train/image_width': _int64_feature(subbands.shape[1]),
                   }
+    elif precedence_effect_multi_azim:
+        feature = {'train/delay': _float_feature(labels[0]),
+                   'train/azim': _int64_feature(labels[1]),
+                   'train/start_sample': _int64_feature(labels[2]),
+                   'train/lead_level': _float_feature(labels[3]),
+                   'train/lag_level': _float_feature(labels[4]),
+                   'train/flipped': _int64_feature(labels[5]),
+                   'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
+                   'train/image_height': _int64_feature(subbands.shape[0]),
+                   'train/image_width': _int64_feature(subbands.shape[1]),
+                  }
     elif precedence_effect:
         feature = {'train/delay': _float_feature(labels[0]),
                    'train/start_sample': _int64_feature(labels[1]),
@@ -336,6 +431,46 @@ def create_feature(subbands,labels=None):
                    'train/image_width': _int64_feature(subbands.shape[1]),
                    'train/bandwidth': _float_feature(labels[2]),
                    'train/center_freq': _int64_feature(labels[3])
+                  }
+    elif CIPIC:
+        feature = {'train/azim': _int64_feature(labels[0]),
+                   'train/elev': _int64_feature(labels[1]),
+                   'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
+                   'train/image_height': _int64_feature(subbands.shape[0]),
+                   'train/image_width': _int64_feature(subbands.shape[1]),
+                   'train/noise_idx': _int64_feature(labels[2]),
+                   'train/subject_num': _int64_feature(labels[3])
+                  }
+    elif middlebrooks_wrightman:
+        feature = {'train/azim': _int64_feature(labels[0]),
+                   'train/elev': _int64_feature(labels[1]),
+                   'train/ITD': _int64_feature(labels[2]),
+                   'train/ILD': _int64_feature(labels[3]),
+                   'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
+                   'train/image_height': _int64_feature(subbands.shape[0]),
+                   'train/image_width': _int64_feature(subbands.shape[1]),
+                   'train/noise_idx': _int64_feature(labels[4]),
+                   'train/low_cutoff': _int64_feature(labels[5]),
+                   'train/high_cutoff': _int64_feature(labels[6]),
+                   'train/subject_num': _int64_feature(labels[7])
+                  }
+    elif smoothed_hrtf:
+        feature = {'train/azim': _int64_feature(labels[0]),
+                   'train/elev': _int64_feature(labels[1]),
+                   'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
+                   'train/image_height': _int64_feature(subbands.shape[0]),
+                   'train/image_width': _int64_feature(subbands.shape[1]),
+                   'train/noise_idx': _int64_feature(labels[2]),
+                   'train/smooth_factor': _int64_feature(labels[3])
+                  }
+    elif binaural_recorded:
+        feature = {'train/azim': _int64_feature(labels[0]),
+                   'train/elev': _int64_feature(labels[1]),
+                   'train/speech': _int64_feature(labels[2]),
+                   #'train/class_num': _int64_feature(labels[2]),
+                   'train/image': _bytes_feature(tf.compat.as_bytes(subbands.tostring())),
+                   'train/image_height': _int64_feature(subbands.shape[0]),
+                   'train/image_width': _int64_feature(subbands.shape[1]),
                   }
     else:
         feature = {'train/azim': _int64_feature(labels[0]),
@@ -364,12 +499,8 @@ def create_record():
     options = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.GZIP)
     writer = tf.python_io.TFRecordWriter(train_filename,options=options)
     for i in range(200*version,min(200+200*version,len(source_files))):
-        try:
-            subbands = cochleagram_wrapper(source_files[i])
-            labels = parse_labels_filename(source_files[i], metadata_dict)
-        except:
-            print("FAILED: {}".format(source_files[i]))
-            continue
+        subbands = cochleagram_wrapper(source_files[i])
+        labels = parse_labels_filename(source_files[i], metadata_dict)
         #split images from labels
         # print how many images are saved every 1000 images
         #if not i % 100:

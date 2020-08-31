@@ -1,8 +1,7 @@
 #!/bin/sh
 
-#SBATCH --time=1-6:30:00  # -- first number is days requested, second number is hours.  After this time the job is cancelled. 
-#SBATCH --qos=mcdermott 
-#SBATCH -p om_all_nodes # Partition to submit to
+#SBATCH --time=2-6:30:00  # -- first number is days requested, second number is hours.  After this time the job is cancelled. 
+#SBATCH -p mcdermott 
 #SBATCH --mail-type=ALL # Type of email notification- BEGIN,END,FAIL,ALL
 #SBATCH --mail-user=francl@mit.edu # -- use this to send an automated email when:
 #SBATCH -o /home/francl/convolve_bkgd.stdout
